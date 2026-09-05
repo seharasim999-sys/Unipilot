@@ -281,16 +281,6 @@ label{font-size:11.5px;color:var(--text-faint);font-weight:700;text-transform:up
 </style>
 </head>
 <body>
-<div id="authGate" style="display:none;position:fixed;inset:0;z-index:300;background:var(--void);align-items:center;justify-content:center;flex-direction:column;gap:18px;text-align:center;padding:20px;">
-  <div class="brand-mark" style="width:60px;height:60px;font-size:26px;">U</div>
-  <div>
-    <div style="font-family:'Fraunces',serif;font-size:24px;font-weight:600;">UniPilot</div>
-    <div style="color:var(--text-dim);font-size:13.5px;margin-top:6px;max-width:320px;">Sign in with Google to sync your data across every device. Nothing is stored until you sign in.</div>
-  </div>
-  <button class="btn btn-primary" style="padding:12px 24px;font-size:14px;" onclick="cloudSignIn()">Sign in with Google</button>
-  <div id="authGateError" style="color:var(--danger);font-size:12.5px;max-width:320px;"></div>
-</div>
-
 <div id="app">
   <aside id="sidebar">
     <div class="brand">
@@ -308,7 +298,9 @@ label{font-size:11.5px;color:var(--text-faint);font-weight:700;text-transform:up
     <nav id="nav"></nav>
 
     <div class="sidebar-foot">
-      <button class="cat-btn" id="syncStatus" onclick="cloudSignIn()">☁ Cloud sync not set up</button>
+<button class="cat-btn" id="loginBtn" style="background:linear-gradient(135deg,var(--lavender),var(--gold));color:#171226;border:none;font-weight:800;">G Sign in with Google</button>
+
+
       <button class="cat-btn" id="installBtn" onclick="triggerInstall()" style="display:none;background:linear-gradient(135deg,var(--lavender),var(--sky));color:#171226;border:none;font-weight:800;">⭳ Install UniPilot</button>
       <button class="cat-btn" id="openCategoryManager">● Colour code</button>
       <select class="theme-select" id="themeSelect"></select>
@@ -332,120 +324,14 @@ label{font-size:11.5px;color:var(--text-faint);font-weight:700;text-transform:up
 
 <div id="toast" style="display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--card-hi);border:1px solid var(--gold);color:var(--text);padding:12px 20px;border-radius:12px;font-weight:700;font-size:13.5px;z-index:200;box-shadow:var(--shadow);"></div>
 
-<!-- Firebase (only used if you fill in firebaseConfig below — see setup instructions) -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/12.18.0/firebase-app-compat.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/12.18.0/firebase-auth-compat.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/12.18.0/firebase-firestore-compat.min.js"></script>
-
 <script>
 /* =========================================================
    STORAGE — pure localStorage, works fully offline, no Claude needed
 ========================================================= */
 const NS = 'unipilot:';
-
-/* ---- keys that should NEVER be pushed to the cloud (too large / not worth syncing) ---- */
-const NO_SYNC_KEYS = ['whiteboard'];
-
-function save(key, val){
-  try{ localStorage.setItem(NS+key, JSON.stringify(val)); }catch(e){ console.error('save failed', key, e); }
-  if(!NO_SYNC_KEYS.includes(key)) pushToCloud(key, val);
-}
+function save(key, val){ try{ localStorage.setItem(NS+key, JSON.stringify(val)); }catch(e){ console.error('save failed', key, e); } }
 function load(key, fallback){ try{ const raw = localStorage.getItem(NS+key); return raw===null ? fallback : JSON.parse(raw); }catch(e){ return fallback; } }
 function uid(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4); }
-
-/* =========================================================
-   CLOUD SYNC (Firebase) — entirely optional.
-   Fill in firebaseConfig below with your own project's keys to enable
-   sign-in and automatic cross-device sync. Until you do, the app works
-   exactly as before: local-only, saved just to this browser.
-   See the setup guide that came with this file for exact steps.
-========================================================= */
-const firebaseConfig = {
-  apiKey: "PASTE_YOUR_API_KEY_HERE",
-  authDomain: "PASTE_YOUR_AUTH_DOMAIN_HERE",
-  projectId: "PASTE_YOUR_PROJECT_ID_HERE",
-  storageBucket: "PASTE_YOUR_STORAGE_BUCKET_HERE",
-  messagingSenderId: "PASTE_YOUR_SENDER_ID_HERE",
-  appId: "PASTE_YOUR_APP_ID_HERE"
-};
-function cloudConfigured(){ return firebaseConfig.apiKey && !firebaseConfig.apiKey.startsWith('PASTE_'); }
-
-let fbAuth = null, fbDb = null, cloudUser = null, unsubscribeSnapshot = null, firstSnapshotSeen = false;
-
-if (cloudConfigured() && typeof firebase !== 'undefined') {
-  try {
-    firebase.initializeApp(firebaseConfig);
-    fbAuth = firebase.auth();
-    fbDb = firebase.firestore();
-    fbAuth.onAuthStateChanged(handleAuthChange);
-  } catch(e){ console.error('Firebase init failed', e); }
-}
-
-function handleAuthChange(user){
-  cloudUser = user;
-  renderSyncStatus();
-  updateAuthGate();
-  if(user){ attachCloudListener(user.uid); }
-  else { detachCloudListener(); }
-}
-function updateAuthGate(){
-  const gate = document.getElementById('authGate');
-  const app = document.getElementById('app');
-  if(!gate || !app) return;
-  if(cloudConfigured() && !cloudUser){
-    gate.style.display = 'flex';
-    app.style.visibility = 'hidden';
-  } else {
-    gate.style.display = 'none';
-    app.style.visibility = 'visible';
-  }
-}
-function attachCloudListener(userId){
-  firstSnapshotSeen = false;
-  unsubscribeSnapshot = fbDb.collection('users').doc(userId).onSnapshot((doc)=>{
-    if(doc.exists){
-      const cloudData = doc.data();
-      Object.keys(cloudData).forEach(k=>{
-        if(NO_SYNC_KEYS.includes(k)) return;
-        state[k] = cloudData[k];
-        try{ localStorage.setItem(NS+k, JSON.stringify(cloudData[k])); }catch(e){}
-      });
-      renderXpBox(); renderPage();
-      if(!firstSnapshotSeen) showToast('Synced with your account');
-    } else if(!firstSnapshotSeen){
-      pushFullStateToCloud(userId);
-    }
-    firstSnapshotSeen = true;
-  }, (err)=>{ console.error('Sync error', err); showToast('Sync error — check Firestore rules'); });
-}
-function detachCloudListener(){ if(unsubscribeSnapshot){ unsubscribeSnapshot(); unsubscribeSnapshot = null; } }
-function pushFullStateToCloud(userId){
-  const payload = {};
-  Object.keys(state).forEach(k=>{ if(!NO_SYNC_KEYS.includes(k)) payload[k] = state[k]; });
-  fbDb.collection('users').doc(userId).set(payload).then(()=> showToast("This device's data is now backed up to your account"))
-    .catch(e=> console.error('initial cloud push failed', e));
-}
-function pushToCloud(key, val){
-  if(!cloudUser || !fbDb) return;
-  fbDb.collection('users').doc(cloudUser.uid).set({[key]: val}, {merge:true}).catch(e=> console.error('cloud save failed', key, e));
-}
-function cloudSignIn(){
-  if(!cloudConfigured()){ showToast("Cloud sync isn't set up yet — see the setup guide"); return; }
-  const provider = new firebase.auth.GoogleAuthProvider();
-  fbAuth.signInWithPopup(provider).catch(e=>{
-    showToast('Sign-in failed: '+e.message);
-    const err = document.getElementById('authGateError');
-    if(err) err.textContent = e.message;
-  });
-}
-function cloudSignOut(){ if(fbAuth) fbAuth.signOut(); }
-function renderSyncStatus(){
-  const el = document.getElementById('syncStatus');
-  if(!el) return;
-  if(!cloudConfigured()){ el.textContent = '☁ Cloud sync not set up'; el.onclick = ()=> showToast('See the setup guide to turn this on'); return; }
-  if(cloudUser){ el.textContent = `☁ Synced — ${cloudUser.email}`; el.onclick = ()=>{ if(confirm('Sign out? You will need to sign in again to use UniPilot.')) cloudSignOut(); }; }
-  else { el.textContent = '☁ Sign in required'; el.onclick = cloudSignIn; }
-}
 
 function showToast(msg){
   const t = document.getElementById('toast');
@@ -819,11 +705,50 @@ function openEventModal(id, presetDate, presetTime){
     <div class="modal-actions">${ev?`<button class="btn btn-danger" onclick="deleteEvent('${ev.id}')">Delete</button>`:''}<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveEvent(${ev?`'${ev.id}'`:'null'})">Save</button></div>
   `);
 }
-function saveEvent(id){
-  const data = { title: document.getElementById('evTitle').value.trim() || 'Untitled', date: document.getElementById('evDate').value, start: document.getElementById('evStart').value, end: document.getElementById('evEnd').value, catId: document.getElementById('evCat').value, notes: document.getElementById('evNotes').value };
-  if(id){ Object.assign(state.events.find(e=>e.id===id), data); } else { state.events.push({id:uid(), ...data}); }
-  save('events', state.events); closeModal(); renderPage();
+
+// 1. Update save to also write to Cloud Firestore
+function save(key, val) {
+  try {
+    localStorage.setItem(NS + key, JSON.stringify(val));
+    
+    // If logged in, upload your current app state to Firestore
+    const user = auth.currentUser;
+    if (user) {
+      db.collection("users").doc(user.uid).set(state);
+    }
+  } catch (e) {
+    console.error('save failed', key, e);
+  }
 }
+
+// 2. Automatically load and sync your data from Firestore when you log in
+auth.onAuthStateChanged((user) => {
+  if (user) {
+    db.collection("users").doc(user.uid).get()
+      .then((doc) => {
+        if (doc.exists) {
+          // Safely merge Firestore data with your default empty state structure
+          state = Object.assign({
+            categories: [], events: [], timetable: [], todos: [], reminders: [],
+            assignments: [], revisionResources: [], revisionSlots: [], notes: [], links: [],
+            budget: {loan:0, expenses:[]}, timerSettings: {work:25, short:5, long:15, sessions:4},
+            places: [], studyGenHistory: [], opportunities: [], bugs: [], projects: [], quests: [], xp: 0, theme: 'auto'
+          }, doc.data());
+
+          // Overwrite local storage with the safely merged data
+          Object.keys(state).forEach(k => {
+            localStorage.setItem(NS + k, JSON.stringify(state[k]));
+          });
+          
+          // Re-render your page safely
+          renderPage();
+        }
+      })
+      .catch((e) => console.error("Error syncing data:", e));
+  }
+});
+
+
 function deleteEvent(id){ state.events = state.events.filter(e=>e.id!==id); save('events', state.events); closeModal(); renderPage(); }
 
 /* ---------- TIMETABLE ---------- */
@@ -842,6 +767,11 @@ function openClassModal(id, presetDay, presetTime){
     <div class="modal-actions">${t?`<button class="btn btn-danger" onclick="deleteClass('${t.id}')">Delete</button>`:''}<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveClass(${t?`'${t.id}'`:'null'})">Save</button></div>
   `);
 }
+
+
+
+
+
 function saveClass(id){
   const data = { module: document.getElementById('ttModule').value.trim() || 'Untitled class', day: parseInt(document.getElementById('ttDay').value), start: document.getElementById('ttStart').value, end: document.getElementById('ttEnd').value, location: document.getElementById('ttLocation').value, catId: document.getElementById('ttCat').value };
   if(id){ Object.assign(state.timetable.find(x=>x.id===id), data); } else { state.timetable.push({id:uid(), ...data}); }
@@ -1374,8 +1304,6 @@ function printPortfolio(){ window.print(); }
   renderXpBox();
   renderNav();
   renderPage();
-  renderSyncStatus();
-  updateAuthGate(); // shows the sign-in wall immediately if cloud sync is configured
 })();
 
 /* PWA install support */
@@ -1400,6 +1328,52 @@ function triggerInstall(){
     if (btn) btn.style.display = 'none';
   });
 }
+</script>
+
+<!-- Core Firebase App (always required) -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<!-- Firebase Authentication (for Google Sign-In) -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<!-- Firebase Firestore (for syncing data) -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+
+</script>
+
+<!-- Core Firebase Libraries -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+
+<script>
+  // Initialize Firebase FIRST so the rest of your app can use it
+  const firebaseConfig = {
+    apiKey: "AIzaSyBgkm8AZmROxFbfOyffB5NT1-HiVM2_8ng", 
+    authDomain: "unipilot-1c48c.firebaseapp.com",
+    projectId: "unipilot-1c48c",
+    storageBucket: "unipilot-1c48c.firebasestorage.app",
+    messagingSenderId: "520818396417",
+    appId: "1:520818396417:web:d037710c6238a48bc25f00" 
+  };
+  firebase.initializeApp(firebaseConfig);
+  const auth = firebase.auth();
+  const db = firebase.firestore();
+
+  const provider = new firebase.auth.GoogleAuthProvider();
+  window.addEventListener('load', () => {
+    const loginBtn = document.getElementById('loginBtn');
+    if (loginBtn) {
+      loginBtn.addEventListener('click', () => {
+        auth.signInWithPopup(provider)
+          .then((result) => {
+            showToast("Signed in as " + result.user.displayName);
+          })
+          .catch((error) => {
+            console.error("Login failed:", error);
+            showToast("Login failed!");
+          });
+      });
+    }
+  });
 </script>
 </body>
 </html>
