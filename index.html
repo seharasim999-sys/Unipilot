@@ -363,13 +363,12 @@ function uid(){ return Math.random().toString(36).slice(2,10)+Date.now().toStrin
    See the setup guide that came with this file for exact steps.
 ========================================================= */
 const firebaseConfig = {
-  apiKey: "AIzaSyDTVLgUffcp9xUrl_OKAcxZGnpccwX1HXw",
-  authDomain: "unipilot-f75d1.firebaseapp.com",
-  projectId: "unipilot-f75d1",
-  storageBucket: "unipilot-f75d1.firebasestorage.app",
-  messagingSenderId: "211911837246",
-  appId: "1:211911837246:web:9cf8a63001de9dd098736f",
-  
+  apiKey: "PASTE_YOUR_API_KEY_HERE",
+  authDomain: "PASTE_YOUR_AUTH_DOMAIN_HERE",
+  projectId: "PASTE_YOUR_PROJECT_ID_HERE",
+  storageBucket: "PASTE_YOUR_STORAGE_BUCKET_HERE",
+  messagingSenderId: "PASTE_YOUR_SENDER_ID_HERE",
+  appId: "PASTE_YOUR_APP_ID_HERE"
 };
 function cloudConfigured(){ return firebaseConfig.apiKey && !firebaseConfig.apiKey.startsWith('PASTE_'); }
 
@@ -381,6 +380,13 @@ if (cloudConfigured() && typeof firebase !== 'undefined') {
     fbAuth = firebase.auth();
     fbDb = firebase.firestore();
     fbAuth.onAuthStateChanged(handleAuthChange);
+    // Catch the result of a redirect-based sign-in (see cloudSignIn below).
+    fbAuth.getRedirectResult().catch((e)=>{
+      console.error('Redirect sign-in error', e);
+      const err = document.getElementById('authGateError');
+      if(err) err.textContent = e.message;
+      showToast('Sign-in failed: ' + e.message);
+    });
   } catch(e){ console.error('Firebase init failed', e); }
 }
 
@@ -457,7 +463,11 @@ function pushToCloud(key, val){
 function cloudSignIn(){
   if(!cloudConfigured()){ showToast("Cloud sync isn't set up yet — see the setup guide"); return; }
   const provider = new firebase.auth.GoogleAuthProvider();
-  fbAuth.signInWithPopup(provider).catch(e=>{
+  // Redirect-based sign-in avoids the popup + third-party-storage restrictions
+  // that browsers like Edge/Chrome enforce by default (this is what caused the
+  // "operation-not-supported-in-this-environment" error). The page will
+  // navigate away to Google, then back — getRedirectResult() above picks it up.
+  fbAuth.signInWithRedirect(provider).catch(e=>{
     showToast('Sign-in failed: '+e.message);
     const err = document.getElementById('authGateError');
     if(err) err.textContent = e.message;
